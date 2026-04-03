@@ -11,7 +11,9 @@ import json
 import time
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))
 
 from db import init_db, log_agent
 from harness import GitHubHarness, ensure_labels, _gh, REPO
@@ -35,10 +37,22 @@ shutdown_event = None  # run_harness()에서 초기화
 # Issue별 Langfuse trace_id 관리
 pipeline_trace_ids = {}  # {issue_number: trace_id}
 
+# Trigger queue for orchestrator (scheduler/dashboard puts items here)
+_trigger_queue: asyncio.Queue = None  # initialized in run_harness()
+
+
+def trigger_pipeline():
+    """외부(스케줄러/대시보드)에서 파이프라인 트리거.
+    asyncio Queue에 아이템을 넣어 orchestrator_worker가 깨어남."""
+    if _trigger_queue is not None:
+        _trigger_queue.put_nowait("trigger")
+        return True
+    return False
+
 
 def update_status(agent, state, detail=""):
     AGENT_STATUS[agent]["state"] = state
-    AGENT_STATUS[agent]["last_run"] = datetime.now().isoformat()
+    AGENT_STATUS[agent]["last_run"] = datetime.now(KST).isoformat()
     AGENT_STATUS[agent]["detail"] = detail
 
 
@@ -92,8 +106,31 @@ def get_agent_data_from_comments(issue_number, agent_name):
 
 # === Agent Workers ===
 
-async def orchestrator_worker(interval_seconds):
+async def orchestrator_worker():
+    """Trigger-based orchestrator: waits for items in _trigger_queue."""
     while not shutdown_event.is_set():
+        update_status("orchestrator", "waiting", "Waiting for trigger (schedule or manual)...")
+        try:
+            # Wait for a trigger or shutdown
+            done, pending = await asyncio.wait(
+                [
+                    asyncio.ensure_future(_trigger_queue.get()),
+                    asyncio.ensure_future(shutdown_event.wait()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            # Cancel pending futures
+            for fut in pending:
+                fut.cancel()
+            # Check if shutdown was triggered
+            if shutdown_event.is_set():
+                break
+        except Exception:
+            if shutdown_event.is_set():
+                break
+            await asyncio.sleep(1)
+            continue
+
         try:
             update_status("orchestrator", "running", "Creating new pipeline issue...")
             await log_agent("Orchestrator", "create_pipeline", "started")
@@ -120,13 +157,6 @@ async def orchestrator_worker(interval_seconds):
         except Exception as e:
             update_status("orchestrator", "error", str(e))
             await log_agent("Orchestrator", "create_pipeline", "failed", str(e))
-
-        update_status("orchestrator", "sleeping", f"Next run in {interval_seconds}s")
-        try:
-            await asyncio.wait_for(shutdown_event.wait(), timeout=interval_seconds)
-            break
-        except asyncio.TimeoutError:
-            pass
 
 
 async def content_manager_worker(poll_seconds=10):
@@ -301,25 +331,26 @@ async def delivery_worker(poll_seconds=10):
             pass
 
 
-async def run_harness(interval_seconds=300):
-    global shutdown_event
+async def run_harness():
+    global shutdown_event, _trigger_queue
     shutdown_event = asyncio.Event()
+    _trigger_queue = asyncio.Queue()
     await init_db()
 
     AGENT_STATUS["harness"]["state"] = "running"
-    AGENT_STATUS["harness"]["started_at"] = datetime.now().isoformat()
-    AGENT_STATUS["harness"]["loop_interval"] = interval_seconds
+    AGENT_STATUS["harness"]["started_at"] = datetime.now(KST).isoformat()
+    AGENT_STATUS["harness"]["loop_interval"] = 0  # trigger-based, no fixed interval
 
     print(f"{'='*60}")
-    print(f"  OPIC Daily Harness - RUNNING")
-    print(f"  Pipeline interval: {interval_seconds}s")
+    print(f"  OPIC Daily Harness - RUNNING (trigger-based)")
+    print(f"  Schedule: 06:00, 12:00, 18:00, 00:00 KST")
     print(f"  Agents: Orchestrator, ContentManager, QuestionGenerator, Delivery")
     print(f"  GitHub: https://github.com/{REPO}/issues")
     print(f"  Langfuse: https://cloud.langfuse.com")
     print(f"{'='*60}")
 
     tasks = [
-        asyncio.create_task(orchestrator_worker(interval_seconds)),
+        asyncio.create_task(orchestrator_worker()),
         asyncio.create_task(content_manager_worker(poll_seconds=10)),
         asyncio.create_task(question_generator_worker(poll_seconds=15)),
         asyncio.create_task(delivery_worker(poll_seconds=10)),
@@ -339,5 +370,4 @@ async def run_harness(interval_seconds=300):
 
 
 if __name__ == "__main__":
-    interval = int(sys.argv[1]) if len(sys.argv) > 1 else 300
-    asyncio.run(run_harness(interval))
+    asyncio.run(run_harness())

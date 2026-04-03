@@ -6,8 +6,9 @@ load_dotenv()
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "")
 # Claude Code CLI is used for question generation (no API key needed)
-DAILY_SEND_HOUR = int(os.getenv("DAILY_SEND_HOUR", "8"))
-DAILY_SEND_MINUTE = int(os.getenv("DAILY_SEND_MINUTE", "0"))
+
+# Schedule: comma-separated hours in KST (e.g. "6,12,18,0")
+SCHEDULE_HOURS = [int(h.strip()) for h in os.getenv("SCHEDULE_HOURS", "6,12,18,0").split(",")]
 DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "8080"))
 
 # OPIC Settings

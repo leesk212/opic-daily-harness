@@ -68,3 +68,17 @@ async def api_harness_status():
         return AGENT_STATUS
     except Exception:
         return {"harness": {"state": "not_running"}}
+
+
+@app.post("/api/trigger")
+async def api_trigger():
+    """수동 파이프라인 트리거 - harness에 Issue를 생성하고 워커가 처리하도록 함"""
+    try:
+        from harness_runner import trigger_pipeline
+        ok = trigger_pipeline()
+        if ok:
+            return {"status": "triggered", "message": "Pipeline trigger queued. Orchestrator will create an issue."}
+        else:
+            return {"status": "error", "message": "Harness is not running. Start the harness first."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

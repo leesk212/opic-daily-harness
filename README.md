@@ -57,16 +57,34 @@
 - `slack-sdk`를 사용하여 지정된 Slack 채널에 전송합니다.
 - 전송 성공/실패를 Comment로 기록하고 Issue를 close합니다.
 
-## Harness Flow
+## 실행 구조
+
+### Orchestrator = Cron Job (배치 트리거)
+
+Orchestrator는 설정된 간격(기본 300초)마다 GitHub Issue를 생성하는 **배치성 cron job** 역할입니다. 직접 다른 Agent를 호출하지 않고, Issue를 찍어내기만 합니다.
+
+### 나머지 3개 Agent = Polling Worker (이벤트 드리븐)
+
+ContentManager, QuestionGenerator, Delivery는 각각 독립적으로 GitHub Issues를 **폴링**하다가 자기 차례가 오면 처리합니다.
 
 ```
-1. Orchestrator        -> GitHub Issue 생성 (label: pipeline, status:in-progress)
-2. ContentManager      -> Issue 감지 -> topic/type 선정 -> Comment 작성
-3. QuestionGenerator   -> Comment 감지 -> Claude Code CLI로 문제 생성 -> Comment 작성
-4. Delivery            -> Comment 감지 -> Slack 전송 -> Comment 작성 -> Issue close
+Orchestrator (300초마다 Issue 생성)
+    ↓ GitHub Issue (label: pipeline, status:in-progress)
+ContentManager (10초마다 폴링 → Issue 발견 → 댓글로 결과 기록)
+    ↓ Issue 댓글
+QuestionGenerator (15초마다 폴링 → CM 댓글 발견 → 댓글로 결과 기록)
+    ↓ Issue 댓글
+Delivery (10초마다 폴링 → QG 댓글 발견 → Slack 전송 → Issue 닫기)
 ```
 
-각 Agent는 `asyncio`로 독립 실행되며, Issue Comment의 `Agent: \`{name}\`` 패턴으로 이전 Agent의 완료 여부를 판별합니다.
+| 에이전트 | 실행 패턴 | 간격 | 동작 |
+|---------|----------|------|------|
+| **Orchestrator** | 배치 (타이머) | 300초 | 주기적으로 GitHub Issue를 생성하여 파이프라인 트리거 |
+| **ContentManager** | 폴링 (이벤트 드리븐) | 10초 | `status:in-progress` Issue를 감시, 자기 댓글이 없으면 주제/유형 선택 |
+| **QuestionGenerator** | 폴링 (이벤트 드리븐) | 15초 | ContentManager 댓글이 달린 Issue를 감시, 문제 생성 |
+| **Delivery** | 폴링 (이벤트 드리븐) | 10초 | QuestionGenerator 댓글이 달린 Issue를 감시, Slack 전송 후 Issue 닫기 |
+
+**핵심:** Agent 간 직접 호출은 없고, **GitHub Issues 댓글이 메시지 큐 역할**을 합니다. 각 Agent는 `asyncio`로 독립 실행되며, Issue Comment의 `Agent: \`{name}\`` 패턴으로 이전 Agent의 완료 여부를 판별합니다.
 
 ## Dashboard
 

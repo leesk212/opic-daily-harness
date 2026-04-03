@@ -1,6 +1,14 @@
 import aiosqlite
 import os
+from datetime import datetime, timezone, timedelta
 from config import DB_PATH
+
+KST = timezone(timedelta(hours=9))
+
+
+def _kst_now() -> str:
+    """현재 KST 시각을 ISO 형식 문자열로 반환"""
+    return datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
 async def init_db():
@@ -14,7 +22,7 @@ async def init_db():
                 question_text TEXT NOT NULL,
                 sample_answer TEXT,
                 key_expressions TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT (datetime('now', '+9 hours'))
             )
         """)
         await db.execute("""
@@ -24,7 +32,7 @@ async def init_db():
                 slack_channel TEXT,
                 status TEXT NOT NULL,
                 error_message TEXT,
-                delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                delivered_at TIMESTAMP DEFAULT (datetime('now', '+9 hours')),
                 FOREIGN KEY (question_id) REFERENCES questions(id)
             )
         """)
@@ -35,7 +43,7 @@ async def init_db():
                 action TEXT NOT NULL,
                 status TEXT NOT NULL,
                 detail TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT (datetime('now', '+9 hours'))
             )
         """)
         await db.commit()
@@ -73,7 +81,7 @@ async def get_recent_topics(days=7):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT topic, question_type FROM questions WHERE created_at >= datetime('now', ?)",
+            "SELECT topic, question_type FROM questions WHERE created_at >= datetime('now', '+9 hours', ?)",
             (f"-{days} days",),
         )
         return await cursor.fetchall()

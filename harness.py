@@ -7,8 +7,10 @@
 
 import json
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
+
+KST = timezone(timedelta(hours=9))
 
 
 REPO = "leesk212/opic-daily-harness"
@@ -72,8 +74,8 @@ class GitHubHarness:
 
     def create_pipeline_issue(self) -> int:
         """새 파이프라인 실행용 Issue 생성 → Issue 번호 반환"""
-        today = datetime.now().strftime("%Y-%m-%d %H:%M")
-        title = f"[Pipeline] OPIC Daily - {today}"
+        today = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+        title = f"[Pipeline] OPIC Daily - {today} KST"
         body = json.dumps({
             "type": "pipeline_start",
             "agent": "orchestrator",
@@ -94,7 +96,7 @@ class GitHubHarness:
 
     def post_agent_status(self, issue_number: int, agent_name: str, action: str, status: str, data: Optional[Dict] = None):
         """Agent 실행 결과를 Issue 댓글로 기록"""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
         payload = {
             "agent": agent_name,
             "action": action,
@@ -104,12 +106,28 @@ class GitHubHarness:
         if data:
             payload["data"] = data
 
+        # Agent별 이모지
+        agent_emoji = {
+            "Orchestrator": "\U0001f3af",
+            "ContentManager": "\U0001f4cb",
+            "QuestionGenerator": "\U0001f916",
+            "Delivery": "\U0001f4e8",
+        }.get(agent_name, "\u2139\ufe0f")
+
+        # Agent별 라벨
+        agent_label = {
+            "Orchestrator": "agent:orchestrator",
+            "ContentManager": "agent:content-manager",
+            "QuestionGenerator": "agent:question-generator",
+            "Delivery": "agent:delivery",
+        }.get(agent_name, "")
+
         # 마크다운 포맷 댓글
-        status_emoji = {"success": "✅", "failed": "❌", "started": "🔄", "in_progress": "⏳"}.get(status, "ℹ️")
+        status_emoji = {"success": "\u2705", "failed": "\u274c", "started": "\U0001f504", "in_progress": "\u23f3"}.get(status, "\u2139\ufe0f")
 
         body_lines = [
-            f"## {status_emoji} Agent: `{agent_name}` — {action}",
-            f"**Status:** `{status}` | **Time:** `{timestamp}`",
+            f"## {agent_emoji} {status_emoji} Agent: `{agent_name}` — {action}",
+            f"**Label:** `{agent_label}` | **Status:** `{status}` | **Time:** `{timestamp}`",
             "",
         ]
 
