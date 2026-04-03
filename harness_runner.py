@@ -297,15 +297,20 @@ async def delivery_worker(poll_seconds=10):
 
                 # Langfuse: delivery span
                 trace_id = get_trace_id(issue_num)
-                span = start_span(trace_id, "delivery.slack_send", {"issue_number": issue_num, "topic": q_data["topic"]})
+                span = start_span(trace_id, "delivery.kakaotalk_send", {"issue_number": issue_num, "topic": q_data["topic"]})
 
                 harness.post_agent_status(issue_num, "Delivery", "send", "started")
-                delivered = await agent.send(q_data)
+                result = await agent.send(q_data)
+                delivered = result["delivered"]
 
                 harness.post_agent_status(
                     issue_num, "Delivery", "send",
                     "success" if delivered else "failed",
-                    {"delivered": delivered},
+                    {
+                        "channel": "kakaotalk",
+                        "delivered": delivered,
+                        "recipients": result["recipients"],
+                    },
                 )
 
                 final_status = "success" if delivered else "failed"

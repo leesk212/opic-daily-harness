@@ -2,7 +2,7 @@
 
 import random
 from db import get_recent_topics, log_agent
-from config import OPIC_TOPICS, OPIC_QUESTION_TYPES
+from config import OPIC_TOPICS, OPIC_QUESTION_TYPES, load_selected_topics
 
 
 class ContentManagerAgent:
@@ -16,10 +16,13 @@ class ContentManagerAgent:
             recent_topics = [r["topic"] for r in recent]
             recent_types = [r["question_type"] for r in recent]
 
+            # 사용자가 선택한 12개 주제만 사용
+            selected = load_selected_topics()
+
             # 최근 7일간 안 나온 주제 우선
-            available_topics = [t for t in OPIC_TOPICS if t not in recent_topics]
+            available_topics = [t for t in selected if t not in recent_topics]
             if not available_topics:
-                available_topics = OPIC_TOPICS
+                available_topics = selected
 
             # 최근 7일간 덜 나온 유형 우선
             type_counts = {}
@@ -38,6 +41,6 @@ class ContentManagerAgent:
         except Exception as e:
             await log_agent(self.name, "pick_topic_and_type", "failed", str(e))
             return {
-                "topic": random.choice(OPIC_TOPICS),
+                "topic": random.choice(load_selected_topics()),
                 "question_type": random.choice(OPIC_QUESTION_TYPES),
             }

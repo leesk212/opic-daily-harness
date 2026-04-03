@@ -68,7 +68,7 @@ class OrchestratorAgent:
             )
             result["steps"]["question"] = question_data
 
-            # Step 3: Delivery → Slack 전송
+            # Step 3: Delivery → KakaoTalk 전송
             self.harness.post_agent_status(
                 issue_number, self.delivery.name, "send", "started",
             )

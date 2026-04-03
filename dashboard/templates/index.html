@@ -160,6 +160,33 @@
             50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
         }
 
+        .recipient-row {
+            display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+            background: #0f172a; padding: 10px 12px; border-radius: 8px; border: 1px solid #334155;
+        }
+        .recipient-row input[type="text"] {
+            flex: 1; background: #1e293b; border: 1px solid #475569; color: #f1f5f9;
+            padding: 6px 10px; border-radius: 6px; font-size: 13px;
+        }
+        .recipient-row label { font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .recipient-row input[type="checkbox"] { accent-color: #3b82f6; }
+        .btn-del { background: #7f1d1d; color: #fca5a5; border: none; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn-del:hover { background: #991b1b; }
+
+        .topics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .topic-item {
+            display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+            background: #0f172a; border: 1px solid #334155; border-radius: 8px; cursor: pointer; transition: border-color 0.2s;
+        }
+        .topic-item:hover { border-color: #3b82f6; }
+        .topic-item.selected { border-color: #22c55e; background: #0f2a1e; }
+        .topic-item input[type="checkbox"] { accent-color: #22c55e; }
+        .topic-item label { font-size: 13px; color: #e2e8f0; cursor: pointer; }
+        .topic-counter { font-size: 14px; font-weight: 600; }
+        .topic-counter.ok { color: #22c55e; }
+        .topic-counter.over { color: #ef4444; }
+        .topic-counter.under { color: #eab308; }
+
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
             .grid-2 { grid-template-columns: 1fr; }
@@ -199,6 +226,7 @@
             <button class="tab" onclick="switchTab('pipelines')">Pipelines</button>
             <button class="tab" onclick="switchTab('questions')">Questions</button>
             <button class="tab" onclick="switchTab('logs')">Agent Logs</button>
+            <button class="tab" onclick="switchTab('settings')">Settings</button>
         </div>
 
         <!-- Tab: Overview -->
@@ -296,7 +324,7 @@
                     <g id="node-delivery" transform="translate(780, 70)">
                         <rect id="nodebg-delivery" width="200" height="100" rx="12" fill="#0f172a" stroke="#475569" stroke-width="2"/>
                         <circle id="nodepulse-delivery" cx="183" cy="14" r="5" fill="#475569"/>
-                        <text x="100" y="28" text-anchor="middle" fill="#f1f5f9" font-size="13" font-weight="700">Delivery (Slack)</text>
+                        <text x="100" y="28" text-anchor="middle" fill="#f1f5f9" font-size="13" font-weight="700">Delivery (KakaoTalk)</text>
                         <text id="nodestate-delivery" x="100" y="48" text-anchor="middle" fill="#64748b" font-size="12">idle</text>
                         <text id="nodedetail-delivery" x="100" y="68" text-anchor="middle" fill="#475569" font-size="10">-</text>
                         <text id="nodetime-delivery" x="100" y="88" text-anchor="middle" fill="#334155" font-size="9"></text>
@@ -404,6 +432,39 @@
             </div>
         </div>
 
+        <!-- Tab: Settings -->
+        <div id="tab-settings" class="tab-content">
+            <!-- Topic Selection -->
+            <div class="panel" style="margin-bottom:24px">
+                <div class="panel-header">
+                    OPIC Topics (12개 선택)
+                    <span class="topic-counter" id="topicCounter">0 / 12</span>
+                </div>
+                <div class="panel-body">
+                    <div class="topics-grid" id="topicsGrid"></div>
+                    <div style="margin-top:16px;display:flex;gap:8px">
+                        <button class="btn" onclick="saveTopics()">Save</button>
+                        <span id="topicsSaveStatus" style="font-size:13px;color:#64748b;line-height:36px"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KakaoTalk Recipients -->
+            <div class="panel" style="max-width:600px">
+                <div class="panel-header">
+                    KakaoTalk Recipients
+                    <button class="btn btn-sm" onclick="addRecipient()">+ Add</button>
+                </div>
+                <div class="panel-body">
+                    <div id="recipientsList"></div>
+                    <div style="margin-top:16px;display:flex;gap:8px">
+                        <button class="btn" onclick="saveRecipients()">Save</button>
+                        <span id="recipientsSaveStatus" style="font-size:13px;color:#64748b;line-height:36px"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ===== QUESTIONS VIEW (default, non-admin) ===== -->
         <div id="questionsView" style="display:block">
             <div style="text-align:center;margin-bottom:24px">
@@ -500,7 +561,7 @@
 
         // --- Tabs ---
         function switchTab(name) {
-            const allTabs = ['overview', 'pipelines', 'questions', 'logs'];
+            const allTabs = ['overview', 'pipelines', 'questions', 'logs', 'settings'];
             allTabs.forEach(t => {
                 const el = document.getElementById('tab-' + t);
                 if (el) { el.style.display = 'none'; el.classList.remove('active'); }
@@ -514,6 +575,7 @@
             if (name === 'pipelines') fetchPipelines();
             if (name === 'questions') fetchQuestions();
             if (name === 'logs') fetchLogs();
+            if (name === 'settings') { fetchRecipients(); fetchTopics(); }
         }
 
         // --- Overview ---
@@ -744,7 +806,7 @@
                 `<tr>
                     <td>${l.delivered_at}</td>
                     <td>${l.question_id || '-'}</td>
-                    <td>${l.slack_channel}</td>
+                    <td>${l.channel}</td>
                     <td><span class="badge-sm badge-${l.status}">${l.status}</span></td>
                     <td>${l.error_message || '-'}</td>
                 </tr>`
@@ -974,6 +1036,146 @@
                 const rb = document.getElementById('restartBtn'); if (rb) rb.disabled = false;
                 const tb = document.getElementById('triggerBtn'); if (tb) tb.disabled = true;
             }
+        }
+
+        // --- Topics (Settings) ---
+        let _allTopics = [];
+        let _selectedTopics = [];
+
+        async function fetchTopics() {
+            try {
+                const res = await fetch(`${API}/api/topics`);
+                const data = await res.json();
+                _allTopics = data.all_topics;
+                _selectedTopics = data.selected;
+                renderTopics();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderTopics() {
+            const grid = document.getElementById('topicsGrid');
+            grid.innerHTML = _allTopics.map(t => {
+                const checked = _selectedTopics.includes(t);
+                return `<div class="topic-item ${checked ? 'selected' : ''}" onclick="toggleTopic('${t}')">
+                    <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleTopic('${t}')">
+                    <label>${t}</label>
+                </div>`;
+            }).join('');
+            updateTopicCounter();
+        }
+
+        function toggleTopic(topic) {
+            const idx = _selectedTopics.indexOf(topic);
+            if (idx >= 0) {
+                _selectedTopics.splice(idx, 1);
+            } else if (_selectedTopics.length < 12) {
+                _selectedTopics.push(topic);
+            }
+            renderTopics();
+        }
+
+        function updateTopicCounter() {
+            const el = document.getElementById('topicCounter');
+            const n = _selectedTopics.length;
+            el.textContent = `${n} / 12`;
+            el.className = 'topic-counter ' + (n === 12 ? 'ok' : n > 12 ? 'over' : 'under');
+        }
+
+        async function saveTopics() {
+            const status = document.getElementById('topicsSaveStatus');
+            if (_selectedTopics.length !== 12) {
+                status.textContent = `12개를 선택해주세요 (현재 ${_selectedTopics.length}개)`;
+                status.style.color = '#ef4444';
+                return;
+            }
+            try {
+                const res = await fetch(`${API}/api/topics`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({selected: _selectedTopics}),
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    status.textContent = 'Saved!';
+                    status.style.color = '#22c55e';
+                } else {
+                    status.textContent = data.message;
+                    status.style.color = '#ef4444';
+                }
+            } catch (e) {
+                status.textContent = 'Error: ' + e.message;
+                status.style.color = '#ef4444';
+            }
+            setTimeout(() => { status.textContent = ''; }, 3000);
+        }
+
+        // --- Recipients (Settings) ---
+        let _recipients = [];
+
+        async function fetchRecipients() {
+            try {
+                const res = await fetch(`${API}/api/recipients`);
+                _recipients = await res.json();
+                renderRecipients();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderRecipients() {
+            const el = document.getElementById('recipientsList');
+            if (!_recipients.length) {
+                el.innerHTML = '<p style="color:#64748b;font-size:13px">No recipients configured.</p>';
+                return;
+            }
+            el.innerHTML = _recipients.map((r, i) => `
+                <div class="recipient-row" data-idx="${i}">
+                    <input type="text" value="${r.name}" onchange="updateRecipient(${i},'name',this.value)"
+                           placeholder="Chat name" ${r.self ? 'disabled' : ''}>
+                    <label><input type="checkbox" ${r.self ? 'checked' : ''} onchange="updateRecipient(${i},'self',this.checked)"> Self</label>
+                    <button class="btn-del" onclick="removeRecipient(${i})">X</button>
+                </div>
+            `).join('');
+        }
+
+        function updateRecipient(idx, field, value) {
+            _recipients[idx][field] = value;
+            if (field === 'self' && value) _recipients[idx].name = 'me';
+            renderRecipients();
+        }
+
+        function addRecipient() {
+            _recipients.push({name: '', self: false});
+            renderRecipients();
+        }
+
+        function removeRecipient(idx) {
+            _recipients.splice(idx, 1);
+            renderRecipients();
+        }
+
+        async function saveRecipients() {
+            const status = document.getElementById('recipientsSaveStatus');
+            const valid = _recipients.filter(r => r.name.trim());
+            try {
+                const res = await fetch(`${API}/api/recipients`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(valid),
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    _recipients = data.recipients;
+                    renderRecipients();
+                    status.textContent = 'Saved!';
+                    status.style.color = '#22c55e';
+                } else {
+                    status.textContent = data.message;
+                    status.style.color = '#ef4444';
+                }
+            } catch (e) {
+                status.textContent = 'Error: ' + e.message;
+                status.style.color = '#ef4444';
+            }
+            setTimeout(() => { status.textContent = ''; }, 3000);
         }
 
         // --- Init ---

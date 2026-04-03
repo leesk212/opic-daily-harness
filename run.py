@@ -55,16 +55,12 @@ def start_scheduler():
 
 
 def run_harness_in_thread():
-    """Harness를 별도 스레드 + 이벤트 루프에서 실행. 종료되어도 스레드만 끝남."""
+    """Harness를 별도 스레드에서 실행. 종료되어도 스레드만 끝남."""
     from harness_runner import run_harness
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(run_harness())
+        asyncio.run(run_harness())
     except Exception as e:
         print(f"  Harness stopped: {e}")
-    finally:
-        loop.close()
     print("  Harness thread exited.")
 
 

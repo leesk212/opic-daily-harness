@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from db import init_db, get_all_questions, get_delivery_logs, get_agent_logs, get_stats
 from harness import GitHubHarness
+from config import load_kakao_recipients, save_kakao_recipients, load_selected_topics, save_selected_topics, OPIC_TOPICS
 
 app = FastAPI(title="OPIC Agent Dashboard")
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
@@ -141,3 +142,39 @@ async def api_schedule():
         "schedule_hours": SCHEDULE_HOURS,
         "next_runs": schedules,
     }
+
+
+@app.get("/api/topics")
+async def api_get_topics():
+    return {"all_topics": OPIC_TOPICS, "selected": load_selected_topics()}
+
+
+@app.put("/api/topics")
+async def api_set_topics(request: Request):
+    data = await request.json()
+    selected = data if isinstance(data, list) else data.get("selected", [])
+    invalid = [t for t in selected if t not in OPIC_TOPICS]
+    if invalid:
+        return {"status": "error", "message": f"Invalid topics: {invalid}"}
+    if len(selected) != 12:
+        return {"status": "error", "message": f"Exactly 12 topics required, got {len(selected)}"}
+    save_selected_topics(selected)
+    return {"status": "ok", "selected": selected}
+
+
+@app.get("/api/recipients")
+async def api_get_recipients():
+    return load_kakao_recipients()
+
+
+@app.put("/api/recipients")
+async def api_set_recipients(request: Request):
+    """수신자 목록 업데이트"""
+    recipients = await request.json()
+    if not isinstance(recipients, list):
+        return {"status": "error", "message": "recipients must be a list"}
+    for r in recipients:
+        if "name" not in r or "self" not in r:
+            return {"status": "error", "message": "each recipient needs 'name' and 'self' fields"}
+    save_kakao_recipients(recipients)
+    return {"status": "ok", "recipients": recipients}

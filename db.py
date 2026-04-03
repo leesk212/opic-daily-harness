@@ -32,7 +32,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS delivery_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 question_id INTEGER,
-                slack_channel TEXT,
+                channel TEXT,
                 status TEXT NOT NULL,
                 error_message TEXT,
                 delivered_at TIMESTAMP DEFAULT (datetime('now', '+9 hours')),
@@ -100,11 +100,11 @@ def _append_to_archive(entry: dict):
         json.dump(archive, f, ensure_ascii=False, indent=2)
 
 
-async def save_delivery(question_id, slack_channel, status, error_message=""):
+async def save_delivery(question_id, channel, status, error_message=""):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO delivery_log (question_id, slack_channel, status, error_message, delivered_at) VALUES (?, ?, ?, ?, ?)",
-            (question_id, slack_channel, status, error_message, _kst_now()),
+            "INSERT INTO delivery_log (question_id, channel, status, error_message, delivered_at) VALUES (?, ?, ?, ?, ?)",
+            (question_id, channel, status, error_message, _kst_now()),
         )
         await db.commit()
 
