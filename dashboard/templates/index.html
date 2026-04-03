@@ -118,31 +118,31 @@
         .gh-link { color: #3b82f6; text-decoration: none; font-size: 12px; }
         .gh-link:hover { text-decoration: underline; }
 
-        /* Live Agent Status */
-        .live-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-        .live-card {
-            background: #1e293b; border-radius: 10px; padding: 16px; border: 2px solid #334155;
-            position: relative; overflow: hidden;
+        /* Pipeline Graph */
+        .pipeline-graph-container {
+            background: #1e293b; border-radius: 12px; border: 1px solid #334155;
+            padding: 24px; margin-bottom: 24px; position: relative; overflow: hidden;
         }
-        .live-card.state-running { border-color: #3b82f6; }
-        .live-card.state-polling { border-color: #8b5cf6; }
-        .live-card.state-done { border-color: #22c55e; }
-        .live-card.state-error { border-color: #ef4444; }
-        .live-card.state-sleeping { border-color: #475569; }
-        .live-card.state-idle { border-color: #334155; }
-        .live-card .agent-name { font-size: 13px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
-        .live-card .agent-state { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-        .live-card .agent-detail { font-size: 11px; color: #94a3b8; line-height: 1.4; }
-        .live-card .agent-time { font-size: 10px; color: #64748b; margin-top: 4px; }
-        .live-card .pulse {
-            position: absolute; top: 12px; right: 12px; width: 8px; height: 8px; border-radius: 50%;
+        .pipeline-graph-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
         }
-        .pulse.on { background: #22c55e; animation: pulse-anim 2s infinite; }
-        .pulse.off { background: #475569; }
-        @keyframes pulse-anim {
-            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
-            50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+        .pipeline-graph-header h3 { font-size: 15px; font-weight: 600; color: #f1f5f9; }
+        .pipeline-graph-header .pg-meta { font-size: 12px; color: #64748b; }
+
+        .pg-svg text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+        /* Edge animation */
+        @keyframes dash-flow {
+            to { stroke-dashoffset: -20; }
         }
+        .edge-active { animation: dash-flow 1s linear infinite; }
+
+        /* Node glow */
+        @keyframes node-glow {
+            0%, 100% { filter: drop-shadow(0 0 4px rgba(59,130,246,0.5)); }
+            50% { filter: drop-shadow(0 0 12px rgba(59,130,246,0.8)); }
+        }
+        .node-running { animation: node-glow 2s ease-in-out infinite; }
 
         .harness-banner {
             background: linear-gradient(135deg, #1e3a5f, #1e293b); border-radius: 12px;
@@ -152,15 +152,13 @@
         .harness-banner .hb-left { display: flex; align-items: center; gap: 12px; }
         .harness-banner .hb-state { font-size: 18px; font-weight: 700; }
         .harness-banner .hb-meta { font-size: 12px; color: #94a3b8; }
-
-        /* Agent Progress Ring */
-        .ring-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-        .ring-card { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; text-align: center; }
-        .ring-card .ring-label { font-size: 13px; color: #94a3b8; margin-top: 8px; }
-        .ring-card .ring-count { font-size: 11px; color: #64748b; margin-top: 4px; }
-        .ring-svg { transform: rotate(-90deg); }
-        .ring-bg { fill: none; stroke: #334155; }
-        .ring-fg { fill: none; stroke-linecap: round; transition: stroke-dashoffset 0.6s ease; }
+        .pulse { width: 8px; height: 8px; border-radius: 50%; }
+        .pulse.on { background: #22c55e; animation: pulse-anim 2s infinite; }
+        .pulse.off { background: #475569; }
+        @keyframes pulse-anim {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+        }
 
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -204,76 +202,88 @@
                 <div class="hb-meta" id="harnessInfo"></div>
             </div>
 
-            <!-- Live Agent Status -->
-            <div class="live-grid" id="liveAgents">
-                <div class="live-card state-idle" id="live-orchestrator">
-                    <div class="pulse off" id="pulse-orchestrator"></div>
-                    <div class="agent-name">Orchestrator</div>
-                    <div class="agent-state" id="state-orchestrator">-</div>
-                    <div class="agent-detail" id="detail-orchestrator">-</div>
-                    <div class="agent-time" id="time-orchestrator"></div>
+            <!-- Pipeline Graph (Node-Edge) -->
+            <div class="pipeline-graph-container">
+                <div class="pipeline-graph-header">
+                    <h3>Agent Pipeline Graph</h3>
+                    <span class="pg-meta" id="pgMeta">Real-time / 3s refresh</span>
                 </div>
-                <div class="live-card state-idle" id="live-content_manager">
-                    <div class="pulse off" id="pulse-content_manager"></div>
-                    <div class="agent-name">ContentManager</div>
-                    <div class="agent-state" id="state-content_manager">-</div>
-                    <div class="agent-detail" id="detail-content_manager">-</div>
-                    <div class="agent-time" id="time-content_manager"></div>
-                </div>
-                <div class="live-card state-idle" id="live-question_generator">
-                    <div class="pulse off" id="pulse-question_generator"></div>
-                    <div class="agent-name">QuestionGenerator</div>
-                    <div class="agent-state" id="state-question_generator">-</div>
-                    <div class="agent-detail" id="detail-question_generator">-</div>
-                    <div class="agent-time" id="time-question_generator"></div>
-                </div>
-                <div class="live-card state-idle" id="live-delivery">
-                    <div class="pulse off" id="pulse-delivery"></div>
-                    <div class="agent-name">Delivery</div>
-                    <div class="agent-state" id="state-delivery">-</div>
-                    <div class="agent-detail" id="detail-delivery">-</div>
-                    <div class="agent-time" id="time-delivery"></div>
-                </div>
-            </div>
+                <svg class="pg-svg" width="100%" height="340" viewBox="0 0 960 340" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <marker id="arrow-idle" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                            <path d="M0,0 L8,3 L0,6" fill="#475569"/>
+                        </marker>
+                        <marker id="arrow-active" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                            <path d="M0,0 L8,3 L0,6" fill="#3b82f6"/>
+                        </marker>
+                        <marker id="arrow-done" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                            <path d="M0,0 L8,3 L0,6" fill="#22c55e"/>
+                        </marker>
+                        <filter id="glow-blue"><feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#3b82f6" flood-opacity="0.6"/></filter>
+                        <filter id="glow-green"><feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#22c55e" flood-opacity="0.6"/></filter>
+                        <filter id="glow-red"><feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#ef4444" flood-opacity="0.6"/></filter>
+                    </defs>
 
-            <!-- Agent Progress Rings -->
-            <div class="ring-grid" id="agentRings">
-                <div class="ring-card" id="ring-orchestrator">
-                    <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
-                        <circle class="ring-bg" cx="50" cy="50" r="40" stroke-width="8"/>
-                        <circle class="ring-fg" id="ringfg-orchestrator" cx="50" cy="50" r="40" stroke-width="8" stroke="#3b82f6" stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
-                        <text x="50" y="54" text-anchor="middle" fill="#f1f5f9" font-size="16" font-weight="700" transform="rotate(90,50,50)" id="ringpct-orchestrator">0%</text>
-                    </svg>
-                    <div class="ring-label">Orchestrator</div>
-                    <div class="ring-count" id="ringcount-orchestrator">-</div>
-                </div>
-                <div class="ring-card" id="ring-content_manager">
-                    <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
-                        <circle class="ring-bg" cx="50" cy="50" r="40" stroke-width="8"/>
-                        <circle class="ring-fg" id="ringfg-content_manager" cx="50" cy="50" r="40" stroke-width="8" stroke="#8b5cf6" stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
-                        <text x="50" y="54" text-anchor="middle" fill="#f1f5f9" font-size="16" font-weight="700" transform="rotate(90,50,50)" id="ringpct-content_manager">0%</text>
-                    </svg>
-                    <div class="ring-label">ContentManager</div>
-                    <div class="ring-count" id="ringcount-content_manager">-</div>
-                </div>
-                <div class="ring-card" id="ring-question_generator">
-                    <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
-                        <circle class="ring-bg" cx="50" cy="50" r="40" stroke-width="8"/>
-                        <circle class="ring-fg" id="ringfg-question_generator" cx="50" cy="50" r="40" stroke-width="8" stroke="#22c55e" stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
-                        <text x="50" y="54" text-anchor="middle" fill="#f1f5f9" font-size="16" font-weight="700" transform="rotate(90,50,50)" id="ringpct-question_generator">0%</text>
-                    </svg>
-                    <div class="ring-label">QuestionGenerator</div>
-                    <div class="ring-count" id="ringcount-question_generator">-</div>
-                </div>
-                <div class="ring-card" id="ring-delivery">
-                    <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
-                        <circle class="ring-bg" cx="50" cy="50" r="40" stroke-width="8"/>
-                        <circle class="ring-fg" id="ringfg-delivery" cx="50" cy="50" r="40" stroke-width="8" stroke="#f59e0b" stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
-                        <text x="50" y="54" text-anchor="middle" fill="#f1f5f9" font-size="16" font-weight="700" transform="rotate(90,50,50)" id="ringpct-delivery">0%</text>
-                    </svg>
-                    <div class="ring-label">Delivery</div>
-                    <div class="ring-count" id="ringcount-delivery">-</div>
-                </div>
+                    <!-- GitHub Issues (central harness) -->
+                    <rect x="370" y="8" width="220" height="36" rx="18" fill="#334155" stroke="#475569" stroke-width="1"/>
+                    <text x="480" y="30" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="600">GitHub Issues (Harness)</text>
+
+                    <!-- Edges: Orchestrator → ContentManager -->
+                    <path id="edge-orch-cm" d="M 230 140 C 280 140, 300 140, 350 140" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow-idle)"/>
+                    <!-- Edges: ContentManager → QuestionGenerator -->
+                    <path id="edge-cm-qg" d="M 560 140 C 610 140, 630 140, 680 140" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow-idle)"/>
+                    <!-- Edges: QuestionGenerator → Delivery -->
+                    <path id="edge-qg-del" d="M 480 220 C 480 260, 480 260, 480 280" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow-idle)"/>
+                    <!-- Vertical: Orchestrator → GitHub Issues -->
+                    <line id="edge-orch-gh" x1="130" y1="108" x2="370" y2="30" stroke="#475569" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>
+                    <!-- Vertical: Delivery → GitHub Issues -->
+                    <line id="edge-del-gh" x1="830" y1="108" x2="590" y2="30" stroke="#475569" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>
+
+                    <!-- NODE: Orchestrator -->
+                    <g id="node-orchestrator" transform="translate(50, 90)">
+                        <rect id="nodebg-orchestrator" width="180" height="100" rx="12" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+                        <circle id="nodepulse-orchestrator" cx="160" cy="16" r="5" fill="#475569"/>
+                        <text x="90" y="30" text-anchor="middle" fill="#f1f5f9" font-size="14" font-weight="700">Orchestrator</text>
+                        <text id="nodestate-orchestrator" x="90" y="52" text-anchor="middle" fill="#64748b" font-size="12">idle</text>
+                        <text id="nodedetail-orchestrator" x="90" y="72" text-anchor="middle" fill="#475569" font-size="10">-</text>
+                        <text id="nodetime-orchestrator" x="90" y="90" text-anchor="middle" fill="#334155" font-size="9"></text>
+                    </g>
+
+                    <!-- NODE: ContentManager -->
+                    <g id="node-content_manager" transform="translate(350, 90)">
+                        <rect id="nodebg-content_manager" width="210" height="100" rx="12" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+                        <circle id="nodepulse-content_manager" cx="190" cy="16" r="5" fill="#475569"/>
+                        <text x="105" y="30" text-anchor="middle" fill="#f1f5f9" font-size="14" font-weight="700">ContentManager</text>
+                        <text id="nodestate-content_manager" x="105" y="52" text-anchor="middle" fill="#64748b" font-size="12">idle</text>
+                        <text id="nodedetail-content_manager" x="105" y="72" text-anchor="middle" fill="#475569" font-size="10">-</text>
+                        <text id="nodetime-content_manager" x="105" y="90" text-anchor="middle" fill="#334155" font-size="9"></text>
+                    </g>
+
+                    <!-- NODE: QuestionGenerator -->
+                    <g id="node-question_generator" transform="translate(660, 90)">
+                        <rect id="nodebg-question_generator" width="220" height="100" rx="12" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+                        <circle id="nodepulse-question_generator" cx="200" cy="16" r="5" fill="#475569"/>
+                        <text x="110" y="30" text-anchor="middle" fill="#f1f5f9" font-size="14" font-weight="700">QuestionGenerator</text>
+                        <text id="nodestate-question_generator" x="110" y="52" text-anchor="middle" fill="#64748b" font-size="12">idle</text>
+                        <text id="nodedetail-question_generator" x="110" y="72" text-anchor="middle" fill="#475569" font-size="10">-</text>
+                        <text id="nodetime-question_generator" x="110" y="90" text-anchor="middle" fill="#334155" font-size="9"></text>
+                    </g>
+
+                    <!-- NODE: Delivery -->
+                    <g id="node-delivery" transform="translate(350, 230)">
+                        <rect id="nodebg-delivery" width="260" height="100" rx="12" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+                        <circle id="nodepulse-delivery" cx="240" cy="16" r="5" fill="#475569"/>
+                        <text x="130" y="30" text-anchor="middle" fill="#f1f5f9" font-size="14" font-weight="700">Delivery (Slack)</text>
+                        <text id="nodestate-delivery" x="130" y="52" text-anchor="middle" fill="#64748b" font-size="12">idle</text>
+                        <text id="nodedetail-delivery" x="130" y="72" text-anchor="middle" fill="#475569" font-size="10">-</text>
+                        <text id="nodetime-delivery" x="130" y="90" text-anchor="middle" fill="#334155" font-size="9"></text>
+                    </g>
+
+                    <!-- Edge Labels -->
+                    <text id="edgelabel-orch-cm" x="290" y="130" text-anchor="middle" fill="#475569" font-size="9">topic/type</text>
+                    <text id="edgelabel-cm-qg" x="625" y="130" text-anchor="middle" fill="#475569" font-size="9">question</text>
+                    <text id="edgelabel-qg-del" x="500" y="258" text-anchor="middle" fill="#475569" font-size="9">slack send</text>
+                </svg>
             </div>
 
             <div class="stats-grid">
@@ -646,11 +656,64 @@
             }
         }
 
-        // --- Live Agent Status ---
+        // --- Pipeline Graph ---
         const stateColors = {
             running: '#3b82f6', polling: '#8b5cf6', done: '#22c55e',
             error: '#ef4444', sleeping: '#475569', idle: '#64748b', waiting: '#eab308',
         };
+        const stateGlow = { running: 'glow-blue', done: 'glow-green', error: 'glow-red' };
+
+        function updateNode(name, state, detail, lastRun) {
+            const color = stateColors[state] || '#475569';
+            const bg = document.getElementById(`nodebg-${name}`);
+            const pulse = document.getElementById(`nodepulse-${name}`);
+            const stateEl = document.getElementById(`nodestate-${name}`);
+            const detailEl = document.getElementById(`nodedetail-${name}`);
+            const timeEl = document.getElementById(`nodetime-${name}`);
+            const nodeG = document.getElementById(`node-${name}`);
+
+            if (bg) {
+                bg.setAttribute('stroke', color);
+                bg.setAttribute('stroke-width', ['running','polling'].includes(state) ? '3' : '2');
+                if (stateGlow[state]) bg.setAttribute('filter', `url(#${stateGlow[state]})`);
+                else bg.removeAttribute('filter');
+            }
+            if (pulse) pulse.setAttribute('fill', ['running','polling'].includes(state) ? '#22c55e' : '#475569');
+            if (stateEl) { stateEl.textContent = state; stateEl.setAttribute('fill', color); }
+            if (detailEl) {
+                const short = (detail || '-').length > 30 ? detail.substring(0, 30) + '...' : (detail || '-');
+                detailEl.textContent = short;
+                detailEl.setAttribute('fill', '#94a3b8');
+            }
+            if (timeEl && lastRun) timeEl.textContent = new Date(lastRun).toLocaleTimeString('ko-KR');
+            if (nodeG) nodeG.classList.toggle('node-running', state === 'running');
+        }
+
+        function updateEdge(edgeId, isActive, isDone) {
+            const edge = document.getElementById(edgeId);
+            if (!edge) return;
+            if (isActive) {
+                edge.setAttribute('stroke', '#3b82f6');
+                edge.setAttribute('stroke-width', '3');
+                edge.classList.add('edge-active');
+                edge.setAttribute('marker-end', 'url(#arrow-active)');
+            } else if (isDone) {
+                edge.setAttribute('stroke', '#22c55e');
+                edge.setAttribute('stroke-width', '2');
+                edge.classList.remove('edge-active');
+                edge.setAttribute('marker-end', 'url(#arrow-done)');
+            } else {
+                edge.setAttribute('stroke', '#475569');
+                edge.setAttribute('stroke-width', '2');
+                edge.classList.remove('edge-active');
+                edge.setAttribute('marker-end', 'url(#arrow-idle)');
+            }
+        }
+
+        function updateEdgeLabel(id, isActive) {
+            const el = document.getElementById(id);
+            if (el) el.setAttribute('fill', isActive ? '#3b82f6' : '#475569');
+        }
 
         async function fetchHarnessStatus() {
             try {
@@ -669,82 +732,45 @@
                     ? `Interval: ${h.loop_interval}s`
                     : '';
 
-                // Agent cards
-                ['orchestrator', 'content_manager', 'question_generator', 'delivery'].forEach(name => {
+                // Update graph nodes
+                const agents = ['orchestrator', 'content_manager', 'question_generator', 'delivery'];
+                const states = {};
+                agents.forEach(name => {
                     const agent = data[name];
                     if (!agent) return;
-                    const card = document.getElementById(`live-${name}`);
-                    const state = agent.state || 'idle';
-
-                    card.className = `live-card state-${state}`;
-                    document.getElementById(`state-${name}`).textContent = state;
-                    document.getElementById(`state-${name}`).style.color = stateColors[state] || '#94a3b8';
-                    document.getElementById(`detail-${name}`).textContent = agent.detail || '-';
-                    document.getElementById(`time-${name}`).textContent = agent.last_run
-                        ? new Date(agent.last_run).toLocaleTimeString('ko-KR')
-                        : '';
-
-                    const isActive = ['running', 'polling'].includes(state);
-                    document.getElementById(`pulse-${name}`).className = `pulse ${isActive ? 'on' : 'off'}`;
+                    states[name] = agent.state || 'idle';
+                    updateNode(name, agent.state || 'idle', agent.detail, agent.last_run);
                 });
+
+                // Update edges based on agent states
+                const orchActive = ['running', 'waiting'].includes(states.orchestrator);
+                const cmActive = ['running', 'polling'].includes(states.content_manager);
+                const cmDone = states.content_manager === 'done';
+                const qgActive = ['running'].includes(states.question_generator);
+                const qgDone = states.question_generator === 'done';
+                const delActive = ['running'].includes(states.delivery);
+                const delDone = states.delivery === 'done';
+
+                updateEdge('edge-orch-cm', orchActive || cmActive, cmDone);
+                updateEdge('edge-cm-qg', cmDone || qgActive, qgDone);
+                updateEdge('edge-qg-del', qgDone || delActive, delDone);
+                updateEdgeLabel('edgelabel-orch-cm', orchActive || cmActive);
+                updateEdgeLabel('edgelabel-cm-qg', cmDone || qgActive);
+                updateEdgeLabel('edgelabel-qg-del', qgDone || delActive);
+
+                document.getElementById('pgMeta').textContent = `Runs: ${h.total_runs || 0} | ${new Date().toLocaleTimeString('ko-KR')}`;
+
             } catch (e) {
                 document.getElementById('harnessState').textContent = 'Harness: not reachable';
                 document.getElementById('harnessPulse').className = 'pulse off';
             }
         }
 
-        // --- Agent Progress Rings ---
-        const CIRCUMFERENCE = 2 * Math.PI * 40; // 251.3
-        const agentColors = {
-            orchestrator: '#3b82f6',
-            content_manager: '#8b5cf6',
-            question_generator: '#22c55e',
-            delivery: '#f59e0b',
-        };
-
-        async function fetchAgentRings() {
-            try {
-                const res = await fetch(`${API}/api/agent-logs`);
-                const logs = await res.json();
-
-                const agents = ['Orchestrator', 'ContentManager', 'QuestionGenerator', 'Delivery'];
-                const keys = ['orchestrator', 'content_manager', 'question_generator', 'delivery'];
-
-                agents.forEach((name, i) => {
-                    const key = keys[i];
-                    const agentLogs = logs.filter(l => l.agent_name === name);
-                    const total = agentLogs.length;
-                    const success = agentLogs.filter(l => l.status === 'success').length;
-                    const failed = agentLogs.filter(l => l.status === 'failed').length;
-                    const rate = total > 0 ? Math.round((success / total) * 100) : 0;
-
-                    // Ring
-                    const offset = CIRCUMFERENCE - (CIRCUMFERENCE * rate / 100);
-                    const fg = document.getElementById(`ringfg-${key}`);
-                    if (fg) {
-                        fg.style.strokeDashoffset = offset;
-                        // 색상: 성공률에 따라
-                        if (rate >= 70) fg.setAttribute('stroke', agentColors[key]);
-                        else if (rate >= 40) fg.setAttribute('stroke', '#eab308');
-                        else if (total > 0) fg.setAttribute('stroke', '#ef4444');
-                    }
-                    const pct = document.getElementById(`ringpct-${key}`);
-                    if (pct) pct.textContent = total > 0 ? `${rate}%` : '-';
-                    const cnt = document.getElementById(`ringcount-${key}`);
-                    if (cnt) cnt.textContent = `${success} ok / ${failed} fail / ${total} total`;
-                });
-            } catch (e) {
-                console.error('Ring fetch error:', e);
-            }
-        }
-
         // --- Init ---
         fetchOverview();
         fetchHarnessStatus();
-        fetchAgentRings();
         setInterval(fetchOverview, 30000);
         setInterval(fetchHarnessStatus, 3000);
-        setInterval(fetchAgentRings, 10000);  // 10초마다 원형 그래프 갱신
     </script>
 </body>
 </html>
