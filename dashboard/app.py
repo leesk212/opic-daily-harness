@@ -72,13 +72,58 @@ async def api_harness_status():
 
 @app.post("/api/trigger")
 async def api_trigger():
-    """수동 파이프라인 트리거 - harness에 Issue를 생성하고 워커가 처리하도록 함"""
+    """수동 파이프라인 트리거"""
     try:
         from harness_runner import trigger_pipeline
         ok = trigger_pipeline()
         if ok:
-            return {"status": "triggered", "message": "Pipeline trigger queued. Orchestrator will create an issue."}
+            return {"status": "triggered", "message": "Pipeline trigger queued."}
         else:
-            return {"status": "error", "message": "Harness is not running. Start the harness first."}
+            return {"status": "error", "message": "Harness is not running."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/shutdown")
+async def api_shutdown():
+    """Harness 전체 중지"""
+    try:
+        from harness_runner import shutdown_harness
+        ok = shutdown_harness()
+        if ok:
+            return {"status": "shutdown", "message": "Harness shutdown signal sent."}
+        else:
+            return {"status": "error", "message": "Harness is not running."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/schedule")
+async def api_schedule():
+    """다음 예정 스케줄 목록 반환"""
+    from datetime import datetime, timezone, timedelta
+    from config import SCHEDULE_HOURS
+
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+    today = now.date()
+
+    schedules = []
+    for h in sorted(SCHEDULE_HOURS):
+        t = datetime(today.year, today.month, today.day, h, 0, tzinfo=KST)
+        if t <= now:
+            # 다음날로
+            t += timedelta(days=1)
+        schedules.append({
+            "time": t.strftime("%Y-%m-%d %H:%M KST"),
+            "hour": h,
+            "remaining_minutes": int((t - now).total_seconds() / 60),
+        })
+
+    schedules.sort(key=lambda x: x["remaining_minutes"])
+
+    return {
+        "current_time": now.strftime("%Y-%m-%d %H:%M:%S KST"),
+        "schedule_hours": SCHEDULE_HOURS,
+        "next_runs": schedules,
+    }

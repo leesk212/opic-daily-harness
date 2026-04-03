@@ -42,10 +42,17 @@ _trigger_queue: asyncio.Queue = None  # initialized in run_harness()
 
 
 def trigger_pipeline():
-    """외부(스케줄러/대시보드)에서 파이프라인 트리거.
-    asyncio Queue에 아이템을 넣어 orchestrator_worker가 깨어남."""
+    """외부(스케줄러/대시보드)에서 파이프라인 트리거."""
     if _trigger_queue is not None:
         _trigger_queue.put_nowait("trigger")
+        return True
+    return False
+
+
+def shutdown_harness():
+    """외부에서 harness 전체 중지."""
+    if shutdown_event is not None:
+        shutdown_event.set()
         return True
     return False
 

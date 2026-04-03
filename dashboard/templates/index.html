@@ -181,10 +181,21 @@
 
     <div class="container">
         <!-- Admin-only header bar -->
-        <div id="adminBar" style="display:none; margin-bottom:16px; display:flex; gap:8px; align-items:center;">
-            <a class="gh-link" href="https://github.com/leesk212/opic-daily-harness/issues" target="_blank">GitHub Issues</a>
-            <a class="gh-link" href="https://cloud.langfuse.com" target="_blank">Langfuse</a>
-            <button class="btn btn-sm" onclick="triggerPipeline()" id="triggerBtn" style="margin-left:auto">Run Now</button>
+        <div id="adminBar" style="display:none">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+                <a class="gh-link" href="https://github.com/leesk212/opic-daily-harness/issues" target="_blank">GitHub Issues</a>
+                <a class="gh-link" href="https://cloud.langfuse.com" target="_blank">Langfuse</a>
+                <div style="margin-left:auto;display:flex;gap:8px">
+                    <button class="btn btn-sm" onclick="triggerPipeline()" id="triggerBtn">Run Now</button>
+                    <button class="btn btn-sm" style="background:#ef4444" onclick="shutdownHarness()" id="shutdownBtn">Stop All</button>
+                </div>
+            </div>
+            <!-- Schedule Info -->
+            <div id="schedulePanel" style="background:#1e293b;border-radius:10px;border:1px solid #334155;padding:14px 20px;margin-bottom:16px;display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+                <div style="font-size:13px;font-weight:600;color:#f1f5f9">Schedule</div>
+                <div id="scheduleList" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+                <div style="margin-left:auto;font-size:11px;color:#64748b" id="scheduleNow"></div>
+            </div>
         </div>
 
         <!-- Admin Tabs (hidden in questions mode) -->
@@ -740,20 +751,62 @@
         async function triggerPipeline() {
             const btn = document.getElementById('triggerBtn');
             btn.disabled = true;
-            btn.textContent = 'Running...';
+            btn.textContent = 'Triggering...';
             try {
                 const res = await fetch(`${API}/api/trigger`, { method: 'POST' });
                 const data = await res.json();
-                const issueNum = data.issue_number ? ` (Issue #${data.issue_number})` : '';
-                alert(data.status === 'success'
-                    ? `Pipeline completed!${issueNum}`
-                    : `Pipeline: ${data.status}${issueNum}\n${data.error || ''}`);
-                fetchOverview();
+                alert(data.message || data.status);
+                if (isAdmin) fetchOverview();
             } catch (e) {
                 alert('Error: ' + e.message);
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Run Now';
+            }
+        }
+
+        async function shutdownHarness() {
+            if (!confirm('Harness를 중지하시겠습니까? 모든 Agent가 정지됩니다.')) return;
+            const btn = document.getElementById('shutdownBtn');
+            btn.disabled = true;
+            btn.textContent = 'Stopping...';
+            try {
+                const res = await fetch(`${API}/api/shutdown`, { method: 'POST' });
+                const data = await res.json();
+                alert(data.message || data.status);
+                fetchHarnessStatus();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Stop All';
+            }
+        }
+
+        async function fetchSchedule() {
+            try {
+                const res = await fetch(`${API}/api/schedule`);
+                const data = await res.json();
+                const list = document.getElementById('scheduleList');
+                const nowEl = document.getElementById('scheduleNow');
+                if (!list) return;
+
+                list.innerHTML = data.next_runs.map((r, i) => {
+                    const isNext = i === 0;
+                    const bg = isNext ? '#22c55e22' : '#33415522';
+                    const color = isNext ? '#22c55e' : '#94a3b8';
+                    const border = isNext ? '#22c55e44' : '#47556944';
+                    const hrs = Math.floor(r.remaining_minutes / 60);
+                    const mins = r.remaining_minutes % 60;
+                    const remaining = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+                    return `<span style="background:${bg};color:${color};border:1px solid ${border};padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600">
+                        ${String(r.hour).padStart(2,'0')}:00 ${isNext ? '(next: ' + remaining + ')' : ''}
+                    </span>`;
+                }).join('');
+
+                if (nowEl) nowEl.textContent = data.current_time;
+            } catch (e) {
+                console.error('Schedule fetch error:', e);
             }
         }
 
@@ -869,13 +922,11 @@
 
         // --- Init ---
         applyMode();
-        setInterval(() => {
-            if (isAdmin) { fetchOverview(); fetchHarnessStatus(); }
-            else { fetchQuestionsView(); }
-        }, isAdmin ? 3000 : 30000);
         if (isAdmin) {
+            fetchSchedule();
             setInterval(fetchHarnessStatus, 3000);
             setInterval(fetchOverview, 30000);
+            setInterval(fetchSchedule, 60000);  // 1분마다 스케줄 갱신
         } else {
             setInterval(fetchQuestionsView, 30000);
         }
