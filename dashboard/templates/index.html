@@ -410,13 +410,20 @@
             const adminEls = ['adminBar', 'adminTabs', 'tab-overview', 'tab-pipelines', 'tab-questions', 'tab-logs'];
             const qView = document.getElementById('questionsView');
 
+            const allAdminTabs = ['tab-overview','tab-pipelines','tab-questions','tab-logs'];
+
             if (isAdmin) {
                 document.getElementById('headerTitle').textContent = 'OPIC Agent Dashboard';
                 document.getElementById('modeToggle').textContent = 'Questions';
                 document.getElementById('adminBar').style.display = 'flex';
                 document.getElementById('adminTabs').style.display = 'flex';
-                document.getElementById('tab-overview').classList.add('active');
-                document.getElementById('tab-overview').style.display = 'block';
+                // Show overview, hide others
+                allAdminTabs.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) { el.style.display = id === 'tab-overview' ? 'block' : 'none'; el.classList.toggle('active', id === 'tab-overview'); }
+                });
+                // Mark first tab button active
+                document.querySelectorAll('#adminTabs .tab').forEach((el, i) => el.classList.toggle('active', i === 0));
                 qView.style.display = 'none';
                 fetchOverview();
                 fetchHarnessStatus();
@@ -425,8 +432,7 @@
                 document.getElementById('modeToggle').textContent = 'Admin';
                 document.getElementById('adminBar').style.display = 'none';
                 document.getElementById('adminTabs').style.display = 'none';
-                // hide all admin tabs
-                ['tab-overview','tab-pipelines','tab-questions','tab-logs'].forEach(id => {
+                allAdminTabs.forEach(id => {
                     const el = document.getElementById(id);
                     if (el) { el.style.display = 'none'; el.classList.remove('active'); }
                 });
@@ -479,10 +485,16 @@
 
         // --- Tabs ---
         function switchTab(name) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            const allTabs = ['overview', 'pipelines', 'questions', 'logs'];
+            allTabs.forEach(t => {
+                const el = document.getElementById('tab-' + t);
+                if (el) { el.style.display = 'none'; el.classList.remove('active'); }
+            });
             document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-            document.getElementById('tab-' + name).classList.add('active');
-            event.target.classList.add('active');
+
+            const target = document.getElementById('tab-' + name);
+            if (target) { target.style.display = 'block'; target.classList.add('active'); }
+            if (event && event.target) event.target.classList.add('active');
 
             if (name === 'pipelines') fetchPipelines();
             if (name === 'questions') fetchQuestions();
