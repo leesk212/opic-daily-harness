@@ -1,8 +1,9 @@
-"""Harness Runner - Agent들을 독립 워커로 상시 실행
+"""Harness Runner - Agent들을 독립 워커로 상시 실행 (Langfuse 트레이싱 포함)
 
 각 Agent는 GitHub Issues를 감시하며 자기 차례가 오면 동작합니다.
 Orchestrator가 주기적으로 파이프라인을 트리거하고,
-나머지 Agent들은 Issue 댓글을 통해 상태를 주고받습���다.
+나머지 Agent들은 Issue 댓글을 통해 상태를 주고받습니다.
+모든 Agent 동작은 Langfuse로 트레이싱됩니다.
 """
 
 import asyncio
@@ -14,6 +15,7 @@ from datetime import datetime
 
 from db import init_db, log_agent
 from harness import GitHubHarness, ensure_labels, _gh, REPO
+from tracing import create_pipeline_trace, start_span, start_generation, log_event, score_trace, flush as langfuse_flush
 from agents.content_manager import ContentManagerAgent
 from agents.question_generator import QuestionGeneratorAgent
 from agents.delivery import DeliveryAgent
@@ -30,36 +32,41 @@ AGENT_STATUS = {
 harness = GitHubHarness()
 shutdown_event = None  # run_harness()에서 초기화
 
+# Issue별 Langfuse trace_id 관리
+pipeline_trace_ids = {}  # {issue_number: trace_id}
 
-def update_status(agent: str, state: str, detail: str = ""):
+
+def update_status(agent, state, detail=""):
     AGENT_STATUS[agent]["state"] = state
     AGENT_STATUS[agent]["last_run"] = datetime.now().isoformat()
     AGENT_STATUS[agent]["detail"] = detail
 
 
+def get_trace_id(issue_number):
+    """Issue에 연결된 trace_id 반환 (없으면 생성)"""
+    if issue_number not in pipeline_trace_ids:
+        pipeline_trace_ids[issue_number] = create_pipeline_trace(issue_number)
+    return pipeline_trace_ids[issue_number]
+
+
 def find_pending_issues():
-    """Orchestrator가 생성했지만 아직 ContentManager가 처리하지 않은 Issue 찾기"""
     try:
         output = _gh([
-            "issue", "list",
-            "--repo", REPO,
+            "issue", "list", "--repo", REPO,
             "--label", "pipeline,status:in-progress",
             "--state", "open",
             "--json", "number,title,comments,createdAt",
             "--limit", "5",
         ])
-        issues = json.loads(output) if output else []
-        return issues
+        return json.loads(output) if output else []
     except Exception:
         return []
 
 
-def issue_has_agent_comment(issue_number: int, agent_name: str) -> bool:
-    """특정 Issue에 해당 Agent의 댓글이 있는지 확인"""
+def issue_has_agent_comment(issue_number, agent_name):
     try:
         detail = harness.get_issue_detail(issue_number)
-        comments = detail.get("comments", [])
-        for c in comments:
+        for c in detail.get("comments", []):
             body = c.get("body", "")
             if f"Agent: `{agent_name}`" in body and ("success" in body or "failed" in body):
                 return True
@@ -68,17 +75,14 @@ def issue_has_agent_comment(issue_number: int, agent_name: str) -> bool:
         return False
 
 
-def get_agent_data_from_comments(issue_number: int, agent_name: str) -> dict:
-    """Issue 댓글에서 특정 Agent의 성공 데이터 추출"""
+def get_agent_data_from_comments(issue_number, agent_name):
     try:
         detail = harness.get_issue_detail(issue_number)
         for c in detail.get("comments", []):
             body = c.get("body", "")
             if f"Agent: `{agent_name}`" in body and "success" in body:
-                # JSON payload 추출
                 if "```json" in body:
                     json_str = body.split("```json")[1].split("```")[0].strip()
-                    # HTML 엔티티 복원
                     json_str = json_str.replace("\\n", "\n")
                     return json.loads(json_str)
         return {}
@@ -88,8 +92,7 @@ def get_agent_data_from_comments(issue_number: int, agent_name: str) -> dict:
 
 # === Agent Workers ===
 
-async def orchestrator_worker(interval_seconds: int):
-    """Orchestrator: 주기적으로 새 파이프라인 Issue 생성"""
+async def orchestrator_worker(interval_seconds):
     while not shutdown_event.is_set():
         try:
             update_status("orchestrator", "running", "Creating new pipeline issue...")
@@ -97,30 +100,36 @@ async def orchestrator_worker(interval_seconds: int):
 
             ensure_labels()
             issue_number = harness.create_pipeline_issue()
+
+            # Langfuse: 파이프라인 trace 생성
+            trace_id = create_pipeline_trace(issue_number)
+            pipeline_trace_ids[issue_number] = trace_id
+            span = start_span(trace_id, "orchestrator.create_pipeline", {"issue_number": issue_number})
+
             harness.post_agent_status(
                 issue_number, "Orchestrator", "pipeline_start", "started",
                 {"message": "Pipeline initiated. Waiting for agents..."},
             )
 
+            span.end()
             AGENT_STATUS["harness"]["total_runs"] += 1
             update_status("orchestrator", "waiting", f"Issue #{issue_number} created, waiting for agents")
             await log_agent("Orchestrator", "create_pipeline", "success", f"issue #{issue_number}")
+            langfuse_flush()
 
         except Exception as e:
             update_status("orchestrator", "error", str(e))
             await log_agent("Orchestrator", "create_pipeline", "failed", str(e))
 
-        # 다음 실행까지 대기
         update_status("orchestrator", "sleeping", f"Next run in {interval_seconds}s")
         try:
             await asyncio.wait_for(shutdown_event.wait(), timeout=interval_seconds)
-            break  # shutdown
+            break
         except asyncio.TimeoutError:
-            pass  # 정상 - 다음 루프
+            pass
 
 
-async def content_manager_worker(poll_seconds: int = 10):
-    """ContentManager: 새 Issue를 감시하다가 주제/유형 선정"""
+async def content_manager_worker(poll_seconds=10):
     agent = ContentManagerAgent()
 
     while not shutdown_event.is_set():
@@ -130,26 +139,24 @@ async def content_manager_worker(poll_seconds: int = 10):
 
             for issue in issues:
                 issue_num = issue["number"]
-
-                # 이미 처리했으면 스킵
                 if issue_has_agent_comment(issue_num, "ContentManager"):
                     continue
 
                 update_status("content_manager", "running", f"Processing Issue #{issue_num}")
                 await log_agent("ContentManager", "pick_topic", "started", f"issue #{issue_num}")
 
-                harness.post_agent_status(
-                    issue_num, "ContentManager", "pick_topic_and_type", "started",
-                )
+                # Langfuse: span
+                trace_id = get_trace_id(issue_num)
+                span = start_span(trace_id, "content_manager.pick_topic_and_type", {"issue_number": issue_num})
 
+                harness.post_agent_status(issue_num, "ContentManager", "pick_topic_and_type", "started")
                 selection = await agent.pick_topic_and_type()
+                harness.post_agent_status(issue_num, "ContentManager", "pick_topic_and_type", "success", selection)
 
-                harness.post_agent_status(
-                    issue_num, "ContentManager", "pick_topic_and_type", "success",
-                    selection,
-                )
+                span.end()
                 update_status("content_manager", "done", f"Issue #{issue_num}: {selection['topic']}")
                 await log_agent("ContentManager", "pick_topic", "success", str(selection))
+                langfuse_flush()
 
         except Exception as e:
             update_status("content_manager", "error", str(e))
@@ -162,8 +169,7 @@ async def content_manager_worker(poll_seconds: int = 10):
             pass
 
 
-async def question_generator_worker(poll_seconds: int = 15):
-    """QuestionGenerator: ContentManager 완료를 감지하면 문제 생성"""
+async def question_generator_worker(poll_seconds=15):
     agent = QuestionGeneratorAgent()
 
     while not shutdown_event.is_set():
@@ -173,21 +179,26 @@ async def question_generator_worker(poll_seconds: int = 15):
 
             for issue in issues:
                 issue_num = issue["number"]
-
-                # ContentManager가 완료했는지 확인
                 if not issue_has_agent_comment(issue_num, "ContentManager"):
                     continue
-                # 이미 처리했으면 스킵
                 if issue_has_agent_comment(issue_num, "QuestionGenerator"):
                     continue
 
                 update_status("question_generator", "running", f"Generating for Issue #{issue_num}")
                 await log_agent("QuestionGenerator", "generate", "started", f"issue #{issue_num}")
 
-                # ContentManager의 결과 가져오기
                 selection = get_agent_data_from_comments(issue_num, "ContentManager")
                 topic = selection.get("topic", "자기소개")
                 q_type = selection.get("question_type", "묘사 (Description)")
+
+                # Langfuse: generation span (LLM 호출 추적)
+                trace_id = get_trace_id(issue_num)
+                generation = start_generation(
+                    trace_id, "question_generator.claude_code",
+                    model="claude-code-cli",
+                    input_data={"topic": topic, "question_type": q_type},
+                    metadata={"issue_number": issue_num, "target_level": "AL"},
+                )
 
                 harness.post_agent_status(
                     issue_num, "QuestionGenerator", "generate", "started",
@@ -203,11 +214,13 @@ async def question_generator_worker(poll_seconds: int = 15):
                     "tip": question_data.get("tip", ""),
                 }
                 harness.post_agent_status(
-                    issue_num, "QuestionGenerator", "generate", "success",
-                    harness_data,
+                    issue_num, "QuestionGenerator", "generate", "success", harness_data,
                 )
+
+                generation.end()
                 update_status("question_generator", "done", f"Issue #{issue_num}: question generated")
                 await log_agent("QuestionGenerator", "generate", "success", f"issue #{issue_num}")
+                langfuse_flush()
 
         except Exception as e:
             update_status("question_generator", "error", str(e))
@@ -220,8 +233,7 @@ async def question_generator_worker(poll_seconds: int = 15):
             pass
 
 
-async def delivery_worker(poll_seconds: int = 10):
-    """Delivery: QuestionGenerator 완료를 감지하면 Slack 전송 + Issue close"""
+async def delivery_worker(poll_seconds=10):
     agent = DeliveryAgent()
 
     while not shutdown_event.is_set():
@@ -231,27 +243,25 @@ async def delivery_worker(poll_seconds: int = 10):
 
             for issue in issues:
                 issue_num = issue["number"]
-
-                # QuestionGenerator가 완료했는지 확인
                 if not issue_has_agent_comment(issue_num, "QuestionGenerator"):
                     continue
-                # 이미 처리했으면 스킵
                 if issue_has_agent_comment(issue_num, "Delivery"):
                     continue
 
                 update_status("delivery", "running", f"Delivering Issue #{issue_num}")
                 await log_agent("Delivery", "send", "started", f"issue #{issue_num}")
 
-                # QuestionGenerator 결과 가져오기
                 q_data = get_agent_data_from_comments(issue_num, "QuestionGenerator")
-                # ContentManager 결과도 필요 (topic, question_type)
                 cm_data = get_agent_data_from_comments(issue_num, "ContentManager")
                 q_data["topic"] = cm_data.get("topic", "Unknown")
                 q_data["question_type"] = cm_data.get("question_type", "Unknown")
                 q_data["id"] = q_data.get("question_id")
 
-                harness.post_agent_status(issue_num, "Delivery", "send", "started")
+                # Langfuse: delivery span
+                trace_id = get_trace_id(issue_num)
+                span = start_span(trace_id, "delivery.slack_send", {"issue_number": issue_num, "topic": q_data["topic"]})
 
+                harness.post_agent_status(issue_num, "Delivery", "send", "started")
                 delivered = await agent.send(q_data)
 
                 harness.post_agent_status(
@@ -260,7 +270,6 @@ async def delivery_worker(poll_seconds: int = 10):
                     {"delivered": delivered},
                 )
 
-                # Pipeline 완료 → Issue close
                 final_status = "success" if delivered else "failed"
                 harness.post_agent_status(
                     issue_num, "Orchestrator", "pipeline_complete", final_status,
@@ -268,8 +277,18 @@ async def delivery_worker(poll_seconds: int = 10):
                 )
                 harness.close_pipeline_issue(issue_num, final_status)
 
+                span.end()
+                log_event(trace_id, "pipeline_result", output_data={"delivered": delivered, "status": final_status})
+
+                # Langfuse: 최종 점수 기록
+                score_trace(trace_id, "pipeline_success", 1.0 if delivered else 0.0, f"Topic: {q_data['topic']}")
+
+                # 완료된 trace 정리
+                pipeline_trace_ids.pop(issue_num, None)
+
                 update_status("delivery", "done", f"Issue #{issue_num}: delivered={delivered}")
                 await log_agent("Delivery", "send", "success" if delivered else "failed", f"issue #{issue_num}")
+                langfuse_flush()
 
         except Exception as e:
             update_status("delivery", "error", str(e))
@@ -282,8 +301,7 @@ async def delivery_worker(poll_seconds: int = 10):
             pass
 
 
-async def run_harness(interval_seconds: int = 300):
-    """모든 Agent 워커를 동시에 시작"""
+async def run_harness(interval_seconds=300):
     global shutdown_event
     shutdown_event = asyncio.Event()
     await init_db()
@@ -297,9 +315,9 @@ async def run_harness(interval_seconds: int = 300):
     print(f"  Pipeline interval: {interval_seconds}s")
     print(f"  Agents: Orchestrator, ContentManager, QuestionGenerator, Delivery")
     print(f"  GitHub: https://github.com/{REPO}/issues")
+    print(f"  Langfuse: https://cloud.langfuse.com")
     print(f"{'='*60}")
 
-    # 모든 Agent 워커를 동시 실행
     tasks = [
         asyncio.create_task(orchestrator_worker(interval_seconds)),
         asyncio.create_task(content_manager_worker(poll_seconds=10)),
@@ -307,7 +325,6 @@ async def run_harness(interval_seconds: int = 300):
         asyncio.create_task(delivery_worker(poll_seconds=10)),
     ]
 
-    # graceful shutdown
     def handle_signal(*_):
         print("\nShutting down harness...")
         shutdown_event.set()
@@ -316,6 +333,7 @@ async def run_harness(interval_seconds: int = 300):
     signal.signal(signal.SIGTERM, handle_signal)
 
     await asyncio.gather(*tasks)
+    langfuse_flush()
     AGENT_STATUS["harness"]["state"] = "stopped"
     print("Harness stopped.")
 
