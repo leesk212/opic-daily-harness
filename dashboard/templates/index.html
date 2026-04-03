@@ -191,12 +191,6 @@
                     <button class="btn btn-sm" style="background:#ef4444" onclick="shutdownHarness()" id="shutdownBtn">Stop All</button>
                 </div>
             </div>
-            <!-- Schedule Info -->
-            <div id="schedulePanel" style="background:#1e293b;border-radius:10px;border:1px solid #334155;padding:14px 20px;margin-bottom:16px;display:flex;gap:24px;align-items:center;flex-wrap:wrap">
-                <div style="font-size:13px;font-weight:600;color:#f1f5f9">Schedule</div>
-                <div id="scheduleList" style="display:flex;gap:8px;flex-wrap:wrap"></div>
-                <div style="margin-left:auto;font-size:11px;color:#64748b" id="scheduleNow"></div>
-            </div>
         </div>
 
         <!-- Admin Tabs (hidden in questions mode) -->
@@ -219,6 +213,15 @@
                     </div>
                 </div>
                 <div class="hb-meta" id="harnessInfo"></div>
+            </div>
+
+            <!-- Schedule Timeline -->
+            <div style="background:#1e293b;border-radius:12px;border:1px solid #334155;padding:20px;margin-bottom:24px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                    <div style="font-size:14px;font-weight:600;color:#f1f5f9">Scheduled Runs</div>
+                    <div style="font-size:11px;color:#64748b" id="scheduleNow"></div>
+                </div>
+                <div id="scheduleTimeline" style="display:flex;gap:0;align-items:center;position:relative"></div>
             </div>
 
             <!-- Pipeline Graph (Node-Edge) -->
@@ -805,23 +808,48 @@
             try {
                 const res = await fetch(`${API}/api/schedule`);
                 const data = await res.json();
-                const list = document.getElementById('scheduleList');
+                const timeline = document.getElementById('scheduleTimeline');
                 const nowEl = document.getElementById('scheduleNow');
-                if (!list) return;
+                if (!timeline) return;
 
-                list.innerHTML = data.next_runs.map((r, i) => {
+                // 24시간 타임라인 위에 스케줄 표시
+                const allHours = data.schedule_hours.sort((a,b) => a - b);
+                const nowHour = parseInt(data.current_time.split(' ')[1].split(':')[0]);
+
+                let html = '<div style="display:flex;width:100%;position:relative;height:70px;align-items:flex-end">';
+
+                // 배경 타임라인 바
+                html += '<div style="position:absolute;bottom:20px;left:0;right:0;height:3px;background:#334155;border-radius:2px"></div>';
+
+                // 현재 시각 마커
+                const nowPct = (nowHour / 24) * 100;
+                html += `<div style="position:absolute;bottom:14px;left:${nowPct}%;transform:translateX(-50%);width:2px;height:14px;background:#f59e0b;border-radius:1px"></div>`;
+                html += `<div style="position:absolute;bottom:0;left:${nowPct}%;transform:translateX(-50%);font-size:9px;color:#f59e0b;white-space:nowrap">now</div>`;
+
+                // 스케줄 포인트
+                data.next_runs.forEach((r, i) => {
+                    const pct = (r.hour / 24) * 100;
                     const isNext = i === 0;
-                    const bg = isNext ? '#22c55e22' : '#33415522';
-                    const color = isNext ? '#22c55e' : '#94a3b8';
-                    const border = isNext ? '#22c55e44' : '#47556944';
+                    const color = isNext ? '#22c55e' : '#3b82f6';
+                    const size = isNext ? 14 : 10;
                     const hrs = Math.floor(r.remaining_minutes / 60);
                     const mins = r.remaining_minutes % 60;
                     const remaining = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-                    return `<span style="background:${bg};color:${color};border:1px solid ${border};padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600">
-                        ${String(r.hour).padStart(2,'0')}:00 ${isNext ? '(next: ' + remaining + ')' : ''}
-                    </span>`;
-                }).join('');
 
+                    // 포인트
+                    html += `<div style="position:absolute;bottom:${20 - size/2}px;left:${pct}%;transform:translateX(-50%);width:${size}px;height:${size}px;border-radius:50%;background:${color};${isNext ? 'box-shadow:0 0 8px '+color+'88;' : ''}"></div>`;
+
+                    // 시간 라벨 (위)
+                    html += `<div style="position:absolute;bottom:36px;left:${pct}%;transform:translateX(-50%);font-size:${isNext?13:11}px;font-weight:${isNext?700:500};color:${isNext?'#f1f5f9':'#94a3b8'};white-space:nowrap">${String(r.hour).padStart(2,'0')}:00</div>`;
+
+                    // 남은 시간 (아래, next만)
+                    if (isNext) {
+                        html += `<div style="position:absolute;bottom:0;left:${pct}%;transform:translateX(-50%);font-size:10px;color:#22c55e;font-weight:600;white-space:nowrap">${remaining}</div>`;
+                    }
+                });
+
+                html += '</div>';
+                timeline.innerHTML = html;
                 if (nowEl) nowEl.textContent = data.current_time;
             } catch (e) {
                 console.error('Schedule fetch error:', e);
@@ -941,6 +969,10 @@
             } catch (e) {
                 document.getElementById('harnessState').textContent = 'Harness: not reachable';
                 document.getElementById('harnessPulse').className = 'pulse off';
+                // 버튼 비활성화
+                const sb = document.getElementById('shutdownBtn'); if (sb) sb.disabled = true;
+                const rb = document.getElementById('restartBtn'); if (rb) rb.disabled = false;
+                const tb = document.getElementById('triggerBtn'); if (tb) tb.disabled = true;
             }
         }
 

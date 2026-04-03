@@ -33,6 +33,7 @@ AGENT_STATUS = {
 
 harness = GitHubHarness()
 shutdown_event = None  # run_harness()에서 초기화
+_event_loop = None  # harness가 돌고 있는 이벤트 루프
 
 # Issue별 Langfuse trace_id 관리
 pipeline_trace_ids = {}  # {issue_number: trace_id}
@@ -42,17 +43,19 @@ _trigger_queue: asyncio.Queue = None  # initialized in run_harness()
 
 
 def trigger_pipeline():
-    """외부(스케줄러/대시보드)에서 파이프라인 트리거."""
-    if _trigger_queue is not None:
-        _trigger_queue.put_nowait("trigger")
+    """외부(스케줄러/대시보드)에서 파이프라인 트리거. 스레드 안전."""
+    if _trigger_queue is not None and _event_loop is not None:
+        _event_loop.call_soon_threadsafe(_trigger_queue.put_nowait, "trigger")
         return True
     return False
 
 
 def shutdown_harness():
-    """외부에서 harness 전체 중지."""
-    if shutdown_event is not None:
-        shutdown_event.set()
+    """외부에서 harness 중지. 스레드 안전."""
+    if shutdown_event is not None and _event_loop is not None:
+        _event_loop.call_soon_threadsafe(shutdown_event.set)
+        # 상태 즉시 업데이트 (UI 반영)
+        AGENT_STATUS["harness"]["state"] = "stopping"
         return True
     return False
 
@@ -339,9 +342,10 @@ async def delivery_worker(poll_seconds=10):
 
 
 async def run_harness():
-    global shutdown_event, _trigger_queue
+    global shutdown_event, _trigger_queue, _event_loop
     shutdown_event = asyncio.Event()
     _trigger_queue = asyncio.Queue()
+    _event_loop = asyncio.get_event_loop()
     await init_db()
 
     AGENT_STATUS["harness"]["state"] = "running"
@@ -373,6 +377,12 @@ async def run_harness():
     await asyncio.gather(*tasks)
     langfuse_flush()
     AGENT_STATUS["harness"]["state"] = "stopped"
+    for agent in ["orchestrator", "content_manager", "question_generator", "delivery"]:
+        AGENT_STATUS[agent]["state"] = "stopped"
+        AGENT_STATUS[agent]["detail"] = ""
+    _event_loop = None
+    _trigger_queue = None
+    shutdown_event = None
     print("Harness stopped.")
 
 
